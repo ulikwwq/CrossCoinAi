@@ -4,57 +4,87 @@ import openai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# 🔐 Токены
-TELEGRAM_TOKEN = "7780572322:AAFDqw3n-SJ7Vt5oHbo1PoxVDfJegZkntqo"
-OPENAI_API_KEY = "сюда вставим позже"  # напиши, если у тебя уже есть ключ OpenAI
+# 🔐 ЗАМЕНИ НА СВОИ КЛЮЧИ (не выкладывай в сеть!)
+TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"
 
-# Настройка логов
+# 🔧 Настройка логов
 logging.basicConfig(level=logging.INFO)
 
-# 🎯 Получение цены криптовалюты
+# 💰 Получение цены криптовалюты и изменение за 24ч
 def get_price(symbol="bitcoin"):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
-    response = requests.get(url).json()
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd&include_24hr_change=true"
     try:
-        return f"💰 {symbol.capitalize()} = {response[symbol]['usd']}$"
-    except:
-        return "Не удалось получить цену. Попробуй BTC, ETH, TON."
+        response = requests.get(url).json()
+        price = response[symbol]["usd"]
+        change = response[symbol]["usd_24h_change"]
+        emoji = "📈" if change >= 0 else "📉"
+        return f"{emoji} {symbol.capitalize()}: {price:.2f}$ ({change:+.2f}% за 24ч)"
+    except Exception as e:
+        logging.error(f"Ошибка при получении цены: {e}")
+        return "❌ Не удалось получить цену. Пример: /price BTC"
 
-# 💬 Ответ через OpenAI
+# 🧠 Ответ ИИ
 async def ai_answer(text):
     openai.api_key = OPENAI_API_KEY
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # или другой
-            messages=[{"role": "user", "content": text}]
+            model="gpt-4",  # можно заменить на gpt-3.5-turbo при необходимости
+            messages=[
+                {"role": "system", "content": "Ты помощник по криптовалютам. Отвечай кратко, понятно и полезно."},
+                {"role": "user", "content": text}
+            ]
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"Ошибка ИИ: {e}"
+        logging.error(f"Ошибка OpenAI: {e}")
+        return "🤖 Ошибка при обращении к ИИ."
 
-# 📥 Обработка команд
+# 📍 Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет, я Crypto AI 🤖. Спроси меня о крипте или напиши /price BTC")
+    await update.message.reply_text(
+        "Привет, я 🤖 *Crypto AI Bot*!\n\n"
+        "Вот что я умею:\n"
+        "/price BTC — курс крипты\n"
+        "Напиши вопрос — я отвечу с помощью ИИ\n"
+        "Поддержка: BTC, ETH, TON, и другие\n",
+        parse_mode="Markdown"
+    )
 
+# 💵 Команда /price
 async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) == 0:
+    if not context.args:
         await update.message.reply_text("Пример: /price BTC")
-    else:
-        symbol = context.args[0].lower()
-        name_map = {"btc": "bitcoin", "eth": "ethereum", "ton": "the-open-network"}
-        coin = name_map.get(symbol, symbol)
-        await update.message.reply_text(get_price(coin))
+        return
+    symbol_input = context.args[0].lower()
+    name_map = {
+        "btc": "bitcoin",
+        "eth": "ethereum",
+        "ton": "the-open-network",
+        "bnb": "binancecoin",
+        "sol": "solana",
+        "ada": "cardano",
+        "doge": "dogecoin",
+        "xrp": "ripple"
+    }
+    symbol = name_map.get(symbol_input, symbol_input)
+    result = get_price(symbol)
+    await update.message.reply_text(result)
 
-# 🧠 Ответ на обычный вопрос
+# ✉️ Обычные сообщения
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply = await ai_answer(update.message.text)
+    user_text = update.message.text
+    reply = await ai_answer(user_text)
     await update.message.reply_text(reply)
 
-# 🚀 Запуск бота
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("price", price))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+# 🚀 Запуск приложения
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("price", price))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+    print("✅ Бот запущен!")
+    app.run_polling()
 
-print("Бот запущен!")
-app.run_polling()
+if __name__ == "__main__":
+    main()
